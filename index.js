@@ -7,47 +7,49 @@ const app = express();
 app.use(express.json());
 
 /**
- * KONFIGURASI DATABASE POSTGRESQL
- * Karena berada di project yang sama, gunakan nama service sebagai hostname.
- * Pastikan DATABASE_CONNECTION_URI di Easypanel mengikuti format:
- * postgres://postgres:password@evolution-api-db:5432/postgres
+ * DATABASE CONNECTION
+ * Konfigurasi koneksi ke PostgreSQL menggunakan variabel lingkungan.
  */
-const connectionString = process.env.DATABASE_CONNECTION_URI;
-
-console.log('--- Mencoba Koneksi Database (Internal Network) ---');
-if (connectionString) {
-    const maskedUri = connectionString.replace(/:([^:@]+)@/, ':****@');
-    console.log('Menghubungkan ke:', maskedUri);
-} else {
-    console.error('❌ ERROR: DATABASE_CONNECTION_URI tidak ditemukan!');
-}
-
 const pool = new Pool({
-    connectionString: connectionString,
-    // Menambahkan timeout agar tidak menggantung jika hostname salah
+    connectionString: process.env.DATABASE_CONNECTION_URI,
     connectionTimeoutMillis: 5000, 
 });
 
-// Verifikasi koneksi saat startup
-pool.connect((err, client, release) => {
-    if (err) {
-        console.error('❌ KONEKSI DATABASE GAGAL:', err.message);
-        console.error('Tips: Pastikan nama service database di URI sudah benar.');
-    } else {
-        console.log('✅ KONEKSI DATABASE BERHASIL');
-        release();
-    }
-});
-
 /**
- * KONFIGURASI EVOLUTION API
+ * CONFIGURATION EVOLUTION API
+ * MASTER_KEY adalah kunci Super Admin untuk mengelola semua instance.
  */
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'https://easy-evo.nganjuk.net';
 const MASTER_KEY = process.env.MASTER_KEY || 'nganjuk123';
-const PORT = process.env.PORT || 3030;
+const PORT = process.env.PORT || 3000;
 
 /**
- * INISIALISASI TABEL MEMBER
+ * STARTUP PROCEDURE
+ * Memverifikasi koneksi database sebelum menjalankan server Express.
+ */
+const startServer = async () => {
+    try {
+        console.log('--- Startup Manager Service ---');
+        const client = await pool.connect();
+        console.log('✅ DATABASE: Terhubung');
+        client.release();
+        
+        await initDb();
+        
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`🚀 MANAGER AKTIF: Port ${PORT}`);
+            console.log(`🔗 TARGET EVO: ${EVOLUTION_URL}`);
+            console.log(`🔑 MODE: Super Admin aktif`);
+        });
+    } catch (err) {
+        console.error('❌ GAGAL STARTUP DATABASE:', err.message);
+        process.exit(1);
+    }
+};
+
+/**
+ * DATABASE TABLE INIT
+ * Menyiapkan tabel 'members' jika belum ada di PostgreSQL.
  */
 const initDb = async () => {
     try {
@@ -60,25 +62,29 @@ const initDb = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        console.log('✅ Skema tabel database telah diverifikasi.');
+        console.log('✅ SKEMA DATABASE: Tabel members siap.');
     } catch (err) {
-        console.error('❌ Gagal memeriksa/membuat tabel:', err.message);
+        console.error('❌ GAGAL INISIALISASI TABEL:', err.message);
+        throw err;
     }
 };
-initDb();
 
 /**
  * ENDPOINT: Register Member
+ * POST /register-member
+ * Mendaftarkan instance baru di Evolution API dan menyimpan datanya di DB.
  */
 app.post('/register-member', async (req, res) => {
     const { name, customToken } = req.body;
 
     if (!name || !customToken) {
-        return res.status(400).json({ error: 'Nama instance dan customToken wajib diisi' });
+        return res.status(400).json({ error: 'name dan customToken wajib diisi' });
     }
 
     try {
-        // 1. Panggil Evolution API untuk membuat instance
+        console.log(`[ADMIN] Mendaftarkan instance: ${name}`);
+
+        // Kirim request ke Evolution API menggunakan Master Key
         const evoResponse = await axios.post(`${EVOLUTION_URL}/instance/create`, {
             instanceName: name,
             token: customToken,
@@ -88,53 +94,85 @@ app.post('/register-member', async (req, res) => {
             headers: { 'apikey': MASTER_KEY }
         });
 
-        // 2. Simpan atau perbarui data member di database lokal
+        // Simpan atau update ke PostgreSQL lokal
         await pool.query(
             `INSERT INTO members (instance_name, api_key) 
              VALUES ($1, $2) 
-             ON CONFLICT (instance_name) 
-             DO UPDATE SET api_key = $2`,
+             ON CONFLICT (instance_name) DO UPDATE SET api_key = $2`,
             [name, customToken]
         );
 
         res.status(201).json({
             status: 'Success',
-            message: `Member ${name} berhasil didaftarkan`,
-            data: evoResponse.data,
-            instructions: {
-                instanceName: name,
-                memberApiKey: customToken,
-                endpoint: `${EVOLUTION_URL}/instance/connectionState/${name}`
-            }
+            message: `Member ${name} berhasil dibuat`,
+            evolution: evoResponse.data
         });
     } catch (error) {
-        console.error('Detail Error:', error.message);
-        
+        console.error('Create Error:', error.message);
         res.status(error.response?.status || 500).json({
-            error: 'Gagal memproses pendaftaran',
-            message: error.message,
-            details: error.response?.data || 'Cek koneksi database atau Evolution API'
+            error: 'Gagal mendaftarkan member',
+            details: error.response?.data || error.message
         });
     }
 });
 
 /**
- * ENDPOINT: Ambil Semua Member
+ * ENDPOINT: Delete Member
+ * DELETE /delete-member/:name
+ * Menghapus instance dari Evolution API dan record dari database.
+ */
+app.delete('/delete-member/:name', async (req, res) => {
+    const instanceName = req.params.name;
+
+    try {
+        console.log(`[ADMIN] Menghapus instance: ${instanceName}`);
+
+        // 1. Hapus dari Evolution API menggunakan Master Key
+        const evoResponse = await axios.delete(`${EVOLUTION_URL}/instance/delete/${instanceName}`, {
+            headers: { 'apikey': MASTER_KEY }
+        });
+
+        // 2. Hapus dari Database Lokal
+        await pool.query('DELETE FROM members WHERE instance_name = $1', [instanceName]);
+
+        res.json({
+            status: 'Success',
+            message: `Member ${instanceName} dihapus dari API dan Database`,
+            evolution: evoResponse.data
+        });
+    } catch (error) {
+        console.error('Delete Error:', error.message);
+        
+        // Jika di API sudah hilang, pastikan di DB lokal juga bersih
+        if (error.response?.status === 404) {
+            await pool.query('DELETE FROM members WHERE instance_name = $1', [instanceName]);
+            return res.status(404).json({
+                status: 'Cleaned',
+                message: 'Data sudah tidak ada di API, record lokal telah dibersihkan.'
+            });
+        }
+
+        res.status(error.response?.status || 500).json({
+            error: 'Gagal menghapus member',
+            details: error.response?.data || error.message
+        });
+    }
+});
+
+/**
+ * ENDPOINT: List Members
+ * GET /members
  */
 app.get('/members', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM members ORDER BY created_at DESC');
+        const result = await pool.query('SELECT instance_name, status, created_at FROM members ORDER BY created_at DESC');
         res.json(result.rows);
     } catch (err) {
-        res.status(500).json({ error: 'Gagal mengambil data member: ' + err.message });
+        res.status(500).json({ error: 'Gagal mengambil data: ' + err.message });
     }
 });
 
-/**
- * Health Check untuk Easypanel
- */
 app.get('/health', (req, res) => res.send('Manager Service Online'));
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Manager Service berjalan di port ${PORT}`);
-});
+// Menjalankan startup aplikasi
+startServer();
