@@ -65,14 +65,59 @@ const evolutionService = {
 
 /**
  * ==========================================
- * Bagian 3: ROUTES & APP CORE (index.js)
+ * Bagian 3: MIDDLEWARE & SECURITY
+ * ==========================================
+ */
+
+// Middleware untuk melindungi endpoint Admin
+const adminAuth = (req, res, next) => {
+    const apiKey = req.headers['apikey'];
+    if (apiKey === MASTER_KEY) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized: Admin API Key diperlukan' });
+    }
+};
+
+/**
+ * ==========================================
+ * Bagian 4: ROUTES & APP CORE (index.js)
  * ==========================================
  */
 const app = express();
 app.use(express.json());
 
-// -- Route: Register Member --
-app.post('/register-member', async (req, res) => {
+// -- Route: Login Member --
+// Digunakan oleh frontend member untuk verifikasi kredensial mereka
+app.post('/login-member', async (req, res) => {
+    const { name, apiKey } = req.body;
+
+    if (!name || !apiKey) {
+        return res.status(400).json({ error: 'name dan apiKey wajib diisi' });
+    }
+
+    try {
+        const result = await db.query(
+            'SELECT instance_name, status FROM members WHERE instance_name = $1 AND api_key = $2',
+            [name, apiKey]
+        );
+
+        if (result.rows.length > 0) {
+            res.json({
+                status: 'Success',
+                message: 'Login berhasil',
+                data: result.rows[0]
+            });
+        } else {
+            res.status(401).json({ error: 'Login gagal: Nama instance atau API Key salah' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    }
+});
+
+// -- Route: Register Member (Protected Admin) --
+app.post('/register-member', adminAuth, async (req, res) => {
     const { name, customToken } = req.body;
 
     if (!name || !customToken) {
@@ -102,8 +147,8 @@ app.post('/register-member', async (req, res) => {
     }
 });
 
-// -- Route: Delete Member --
-app.delete('/delete-member/:name', async (req, res) => {
+// -- Route: Delete Member (Protected Admin) --
+app.delete('/delete-member/:name', adminAuth, async (req, res) => {
     const instanceName = req.params.name;
 
     try {
@@ -125,8 +170,8 @@ app.delete('/delete-member/:name', async (req, res) => {
     }
 });
 
-// -- Route: List Members --
-app.get('/members', async (req, res) => {
+// -- Route: List Members (Protected Admin) --
+app.get('/members', adminAuth, async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM members ORDER BY created_at DESC');
         res.json(result.rows);
@@ -140,10 +185,10 @@ app.get('/health', (req, res) => res.send('Modular Manager Online'));
 
 /**
  * ==========================================
- * Bagian 4: BOOTSTRAPPER
+ * Bagian 5: BOOTSTRAPPER
  * ==========================================
  */
-const PORT = process.env.PORT || 3030;
+const PORT = process.env.PORT || 3000;
 
 const start = async () => {
     try {
