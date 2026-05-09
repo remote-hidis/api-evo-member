@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evolution Manager Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel for Browser Rendering -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .glass-effect {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- KONFIGURASI API ---
+        const API_BASE_URL = "https://user.nganjuk.net"; 
+
+        // Komponen Ikon (Wrapper untuk Lucide)
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const App = () => {
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [userRole, setUserRole] = useState(null); 
+            const [userData, setUserData] = useState(null);
+            const [members, setMembers] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [success, setSuccess] = useState(null);
+
+            const [loginForm, setLoginForm] = useState({ name: '', apiKey: '' });
+            const [registerForm, setRegisterForm] = useState({ name: '', customToken: '' });
+
+            useEffect(() => {
+                const token = localStorage.getItem('manager_token');
+                const role = localStorage.getItem('manager_role');
+                if (token && role) {
+                    setIsLoggedIn(true);
+                    setUserRole(role);
+                    if (role === 'admin') fetchMembers();
+                }
+            }, []);
+
+            const fetchMembers = async () => {
+                const token = localStorage.getItem('manager_token');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/members`, {
+                        headers: { 'apikey': token }
+                    });
+                    const data = await response.json();
+                    if (response.ok) setMembers(data);
+                } catch (err) {
+                    console.error("Gagal sinkronisasi data");
+                }
+            };
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError(null);
+
+                try {
+                    if (loginForm.name === 'admin' && loginForm.apiKey === 'nganjuk123') {
+                        setIsLoggedIn(true);
+                        setUserRole('admin');
+                        localStorage.setItem('manager_token', loginForm.apiKey);
+                        localStorage.setItem('manager_role', 'admin');
+                        fetchMembers();
+                    } else {
+                        const response = await fetch(`${API_BASE_URL}/login-member`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(loginForm)
+                        });
+                        const result = await response.json();
+                        if (response.ok) {
+                            setIsLoggedIn(true);
+                            setUserRole('member');
+                            setUserData(result.data);
+                            localStorage.setItem('manager_token', loginForm.apiKey);
+                            localStorage.setItem('manager_name', loginForm.name);
+                            localStorage.setItem('manager_role', 'member');
+                        } else {
+                            setError(result.error || 'Akses ditolak');
+                        }
+                    }
+                } catch (err) {
+                    setError('Server tidak merespon. Cek CORS atau URL API.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleRegister = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                const token = localStorage.getItem('manager_token');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/register-member`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'apikey': token },
+                        body: JSON.stringify(registerForm)
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        setSuccess(`Instance ${registerForm.name} aktif!`);
+                        setRegisterForm({ name: '', customToken: '' });
+                        fetchMembers();
+                    } else {
+                        setError(result.error);
+                    }
+                } catch (err) {
+                    setError('Gagal pendaftaran');
+                } finally {
+                    setLoading(false);
+                    setTimeout(() => setSuccess(null), 3000);
+                }
+            };
+
+            const handleDelete = async (name) => {
+                if (!confirm(`Hapus ${name} permanen?`)) return;
+                const token = localStorage.getItem('manager_token');
+                try {
+                    await fetch(`${API_BASE_URL}/delete-member/${name}`, {
+                        method: 'DELETE',
+                        headers: { 'apikey': token }
+                    });
+                    fetchMembers();
+                    setSuccess("Berhasil dihapus");
+                    setTimeout(() => setSuccess(null), 2000);
+                } catch (err) {
+                    setError("Gagal hapus");
+                }
+            };
+
+            const handleLogout = () => {
+                setIsLoggedIn(false);
+                localStorage.clear();
+            };
+
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-6">
+                        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                            <div className="flex justify-center mb-6">
+                                <div className="p-4 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/30">
+                                    <Icon name="shield-check" size={32} className="text-white" />
+                                </div>
+                            </div>
+                            <h1 className="text-2xl font-extrabold text-white text-center mb-1">Evo Manager</h1>
+                            <p className="text-slate-500 text-center mb-8 text-sm font-medium">Dashboard Pengelola Instance</p>
+                            
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-400 ml-1">Instance Name</label>
+                                    <div className="relative">
+                                        <div className="absolute left-4 top-3 text-slate-500"><Icon name="user" size={18} /></div>
+                                        <input 
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-12 pr-4 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                            placeholder="admin / username"
+                                            value={loginForm.name}
+                                            onChange={e => setLoginForm({...loginForm, name: e.target.value})}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-400 ml-1">API Key</label>
+                                    <div className="relative">
+                                        <div className="absolute left-4 top-3 text-slate-500"><Icon name="key" size={18} /></div>
+                                        <input 
+                                            type="password"
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-12 pr-4 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                            placeholder="••••••••"
+                                            value={loginForm.apiKey}
+                                            onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                {error && <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl flex items-center gap-2"><Icon name="alert-circle" size={14}/> {error}</div>}
+                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-[0.98]">
+                                    {loading ? "Menghubungkan..." : "Login Dashboard"}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen flex flex-col md:flex-row overflow-hidden">
+                    {/* Sidebar */}
+                    <aside className="w-full md:w-72 bg-slate-900 border-r border-slate-800 flex flex-col glass-effect">
+                        <div className="p-8 flex items-center gap-3">
+                            <div className="p-2 bg-blue-600 rounded-lg shadow-md"><Icon name="activity" size={20} className="text-white" /></div>
+                            <span className="font-extrabold text-white tracking-tighter text-xl">EVO.APP</span>
+                        </div>
+                        <nav className="flex-1 px-4 space-y-2">
+                            <button className="w-full flex items-center gap-4 px-5 py-3.5 rounded-2xl bg-blue-600/10 text-blue-400 font-bold border border-blue-500/20">
+                                <Icon name="layout" size={18} /> Dashboard
+                            </button>
+                        </nav>
+                        <div className="p-6">
+                            <div className="bg-slate-950/50 rounded-2xl p-4 border border-slate-800 mb-4">
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Sesi Aktif</p>
+                                <p className="text-sm font-bold text-white truncate">{userRole === 'admin' ? 'Administrator' : userData?.instance_name}</p>
+                            </div>
+                            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all font-bold border border-red-500/10">
+                                <Icon name="log-out" size={18} /> Keluar
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Content */}
+                    <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+                        <header className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
+                            <div>
+                                <h2 className="text-3xl font-black text-white tracking-tight">Manager Portal</h2>
+                                <p className="text-slate-500 font-medium">Monitoring & Kontrol Evolution API</p>
+                            </div>
+                            <div className="flex gap-4 items-center bg-slate-900 px-6 py-4 rounded-3xl border border-slate-800">
+                                <div className="text-right">
+                                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">API Health</p>
+                                    <p className="text-xs text-green-400 font-black flex items-center gap-2 justify-end mt-0.5">
+                                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span> ONLINE
+                                    </p>
+                                </div>
+                            </div>
+                        </header>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                            {userRole === 'admin' && (
+                                <section className="lg:col-span-1">
+                                    <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 p-8 shadow-xl">
+                                        <h3 className="text-lg font-black text-white mb-6 flex items-center gap-3">
+                                            <Icon name="plus-circle" className="text-blue-500" /> Member Baru
+                                        </h3>
+                                        <form onSubmit={handleRegister} className="space-y-5">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 ml-1">Nama Instance</label>
+                                                <input 
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
+                                                    placeholder="e.g. johan_store"
+                                                    value={registerForm.name}
+                                                    onChange={e => setRegisterForm({...registerForm, name: e.target.value})}
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 ml-1">Password API</label>
+                                                <input 
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
+                                                    placeholder="Secret token member"
+                                                    value={registerForm.customToken}
+                                                    onChange={e => setRegisterForm({...registerForm, customToken: e.target.value})}
+                                                    required
+                                                />
+                                            </div>
+                                            {success && <div className="p-3 bg-green-500/10 border border-green-500/20 text-green-400 text-xs rounded-xl font-bold">{success}</div>}
+                                            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl transition-all shadow-xl shadow-blue-600/10">
+                                                Buat Instance
+                                            </button>
+                                        </form>
+                                    </div>
+                                </section>
+                            )}
+
+                            <section className={userRole === 'admin' ? "lg:col-span-2" : "lg:col-span-3"}>
+                                <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 overflow-hidden shadow-xl">
+                                    <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                                        <h3 className="text-lg font-black text-white flex items-center gap-3">
+                                            <Icon name="smartphone" className="text-purple-500" /> Aktifitas Instance
+                                        </h3>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="border-b border-slate-800 text-[10px] text-slate-600 uppercase tracking-[0.2em] font-black">
+                                                    <th className="px-8 py-6">Identity</th>
+                                                    <th className="px-8 py-6">State</th>
+                                                    <th className="px-8 py-6">Registry</th>
+                                                    <th className="px-8 py-6 text-right">Control</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-800/50">
+                                                {userRole === 'admin' ? (
+                                                    members.length > 0 ? members.map(m => (
+                                                        <tr key={m.instance_name} className="hover:bg-slate-800/20 transition-colors group">
+                                                            <td className="px-8 py-6 font-bold text-white tracking-tight">{m.instance_name}</td>
+                                                            <td className="px-8 py-6">
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-green-500/10 text-green-500 border border-green-500/20 tracking-widest shadow-sm">Active</span>
+                                                            </td>
+                                                            <td className="px-8 py-6 text-xs text-slate-500 font-bold">{new Date(m.created_at).toLocaleDateString()}</td>
+                                                            <td className="px-8 py-6 text-right">
+                                                                <button onClick={() => handleDelete(m.instance_name)} className="p-3 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-2xl transition-all">
+                                                                    <Icon name="trash-2" size={18} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    )) : (
+                                                        <tr><td colSpan="4" className="p-20 text-center text-slate-600 font-black tracking-widest italic opacity-50 uppercase">No Data Found</td></tr>
+                                                    )
+                                                ) : (
+                                                    <tr className="bg-slate-800/20">
+                                                        <td className="px-8 py-10">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center font-black text-blue-500 text-lg uppercase">
+                                                                    {userData?.instance_name?.[0]}
+                                                                </div>
+                                                                <div>
+                                                                    <p className="font-black text-white text-lg tracking-tight uppercase">{userData?.instance_name}</p>
+                                                                    <p className="text-xs text-slate-500 font-bold tracking-widest uppercase">My Instance Account</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-8 py-10">
+                                                            <span className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase bg-green-500/10 text-green-500 border border-green-500/20 tracking-[0.2em] shadow-lg">Authorized</span>
+                                                        </td>
+                                                        <td className="px-8 py-10 text-xs text-slate-500 font-black italic">Live Session</td>
+                                                        <td className="px-8 py-10 text-right">
+                                                            <button className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-600/20 hover:scale-105 transition-transform active:scale-95">
+                                                                Sync Devices
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
