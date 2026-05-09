@@ -1,11 +1,13 @@
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
+const path = require('path'); // Tambahkan module path
 const { Pool } = require('pg');
 require('dotenv').config();
 
 /**
  * ==========================================
- * Bagian 1: DATABASE MODULE (db.js)
+ * Bagian 1: DATABASE MODULE
  * ==========================================
  */
 const pool = new Pool({
@@ -36,7 +38,7 @@ const db = {
 
 /**
  * ==========================================
- * Bagian 2: EVOLUTION SERVICE (services/evolution.js)
+ * Bagian 2: EVOLUTION SERVICE
  * ==========================================
  */
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'https://easy-evo.nganjuk.net';
@@ -68,8 +70,16 @@ const evolutionService = {
  * Bagian 3: MIDDLEWARE & SECURITY
  * ==========================================
  */
+const app = express();
 
-// Middleware untuk melindungi endpoint Admin
+// Middleware dasar
+app.use(cors());
+app.use(express.json());
+
+// --- SERVE STATIC FILES ---
+// Ini akan membaca folder 'public' dan mencari 'index.html' secara otomatis
+app.use(express.static(path.join(__dirname, 'public')));
+
 const adminAuth = (req, res, next) => {
     const apiKey = req.headers['apikey'];
     if (apiKey === MASTER_KEY) {
@@ -81,97 +91,45 @@ const adminAuth = (req, res, next) => {
 
 /**
  * ==========================================
- * Bagian 4: ROUTES & APP CORE (index.js)
+ * Bagian 4: API ROUTES
  * ==========================================
  */
-const app = express();
-app.use(express.json());
 
-// -- Route: Login Member --
-// Digunakan oleh frontend member untuk verifikasi kredensial mereka
-app.post('/login-member', async (req, res) => {
+// Login Member
+app.post('/api/login-member', async (req, res) => {
     const { name, apiKey } = req.body;
-
-    if (!name || !apiKey) {
-        return res.status(400).json({ error: 'name dan apiKey wajib diisi' });
-    }
-
     try {
         const result = await db.query(
             'SELECT instance_name, status FROM members WHERE instance_name = $1 AND api_key = $2',
             [name, apiKey]
         );
-
         if (result.rows.length > 0) {
-            res.json({
-                status: 'Success',
-                message: 'Login berhasil',
-                data: result.rows[0]
-            });
+            res.json({ status: 'Success', message: 'Login berhasil', data: result.rows[0] });
         } else {
-            res.status(401).json({ error: 'Login gagal: Nama instance atau API Key salah' });
+            res.status(401).json({ error: 'Login gagal' });
         }
     } catch (err) {
-        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// -- Route: Register Member (Protected Admin) --
-app.post('/register-member', adminAuth, async (req, res) => {
+// Register Member (Protected)
+app.post('/api/register-member', adminAuth, async (req, res) => {
     const { name, customToken } = req.body;
-
-    if (!name || !customToken) {
-        return res.status(400).json({ error: 'name dan customToken wajib diisi' });
-    }
-
     try {
-        console.log(`[ACTION] Registering: ${name}`);
-        
-        // Call Evolution Service
         const evoData = await evolutionService.createInstance(name, customToken);
-
-        // Save to DB
         await db.query(
-            `INSERT INTO members (instance_name, api_key) 
-             VALUES ($1, $2) 
-             ON CONFLICT (instance_name) DO UPDATE SET api_key = $2`,
+            'INSERT INTO members (instance_name, api_key) VALUES ($1, $2) ON CONFLICT (instance_name) DO UPDATE SET api_key = $2',
             [name, customToken]
         );
-
         res.status(201).json({ status: 'Success', evolution: evoData });
     } catch (error) {
-        res.status(error.response?.status || 500).json({
-            error: 'Gagal pendaftaran',
-            details: error.response?.data || error.message
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// -- Route: Delete Member (Protected Admin) --
-app.delete('/delete-member/:name', adminAuth, async (req, res) => {
-    const instanceName = req.params.name;
-
-    try {
-        console.log(`[ACTION] Deleting: ${instanceName}`);
-        
-        // Delete from Evolution
-        const evoData = await evolutionService.deleteInstance(instanceName);
-
-        // Delete from DB
-        await db.query('DELETE FROM members WHERE instance_name = $1', [instanceName]);
-
-        res.json({ status: 'Success', evolution: evoData });
-    } catch (error) {
-        if (error.response?.status === 404) {
-            await db.query('DELETE FROM members WHERE instance_name = $1', [instanceName]);
-            return res.status(404).json({ message: 'Data lokal dibersihkan (API 404)' });
-        }
-        res.status(500).json({ error: 'Gagal hapus', details: error.message });
-    }
-});
-
-// -- Route: List Members (Protected Admin) --
-app.get('/members', adminAuth, async (req, res) => {
+// List Members (Protected)
+app.get('/api/members', adminAuth, async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM members ORDER BY created_at DESC');
         res.json(result.rows);
@@ -180,22 +138,27 @@ app.get('/members', adminAuth, async (req, res) => {
     }
 });
 
-// -- Health Check --
-app.get('/health', (req, res) => res.send('Modular Manager Online'));
+// --- SPA FALLBACK ---
+// Jika user mengakses route yang tidak terdaftar (misal refresh halaman di browser)
+// Arahkan kembali ke index.html agar React yang menangani routingnya
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 /**
  * ==========================================
  * Bagian 5: BOOTSTRAPPER
  * ==========================================
  */
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3030;
 
 const start = async () => {
     try {
         await pool.connect();
         await db.init();
         app.listen(PORT, '0.0.0.0', () => {
-            console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
+            console.log(`🚀 HYBRID SERVER RUNNING ON PORT ${PORT}`);
+            console.log(`📂 Serving static files from: /public`);
         });
     } catch (err) {
         console.error('❌ FATAL STARTUP ERROR:', err.message);
