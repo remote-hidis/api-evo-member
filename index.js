@@ -8,11 +8,35 @@ app.use(express.json());
 
 /**
  * KONFIGURASI DATABASE POSTGRESQL
- * Pastikan variabel DATABASE_CONNECTION_URI sudah diatur di Easypanel
- * Format: postgres://user:password@host:5432/database
+ * Karena berada di project yang sama, gunakan nama service sebagai hostname.
+ * Pastikan DATABASE_CONNECTION_URI di Easypanel mengikuti format:
+ * postgres://postgres:password@evolution-api-db:5432/postgres
  */
+const connectionString = process.env.DATABASE_CONNECTION_URI;
+
+console.log('--- Mencoba Koneksi Database (Internal Network) ---');
+if (connectionString) {
+    const maskedUri = connectionString.replace(/:([^:@]+)@/, ':****@');
+    console.log('Menghubungkan ke:', maskedUri);
+} else {
+    console.error('❌ ERROR: DATABASE_CONNECTION_URI tidak ditemukan!');
+}
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_CONNECTION_URI,
+    connectionString: connectionString,
+    // Menambahkan timeout agar tidak menggantung jika hostname salah
+    connectionTimeoutMillis: 5000, 
+});
+
+// Verifikasi koneksi saat startup
+pool.connect((err, client, release) => {
+    if (err) {
+        console.error('❌ KONEKSI DATABASE GAGAL:', err.message);
+        console.error('Tips: Pastikan nama service database di URI sudah benar.');
+    } else {
+        console.log('✅ KONEKSI DATABASE BERHASIL');
+        release();
+    }
 });
 
 /**
@@ -24,7 +48,6 @@ const PORT = process.env.PORT || 3030;
 
 /**
  * INISIALISASI TABEL MEMBER
- * Menyiapkan skema database saat aplikasi pertama kali dijalankan
  */
 const initDb = async () => {
     try {
@@ -37,16 +60,15 @@ const initDb = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        console.log('✅ Database PostgreSQL berhasil terhubung dan tabel siap.');
+        console.log('✅ Skema tabel database telah diverifikasi.');
     } catch (err) {
-        console.error('❌ Gagal menginisialisasi database:', err.message);
+        console.error('❌ Gagal memeriksa/membuat tabel:', err.message);
     }
 };
 initDb();
 
 /**
  * ENDPOINT: Register Member
- * Membuat instance di Evolution API dan mencatatnya ke PostgreSQL
  */
 app.post('/register-member', async (req, res) => {
     const { name, customToken } = req.body;
@@ -86,29 +108,30 @@ app.post('/register-member', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error pendaftaran:', error.response?.data || error.message);
+        console.error('Detail Error:', error.message);
+        
         res.status(error.response?.status || 500).json({
-            error: 'Gagal memproses pendaftaran ke Evolution API',
-            details: error.response?.data || error.message
+            error: 'Gagal memproses pendaftaran',
+            message: error.message,
+            details: error.response?.data || 'Cek koneksi database atau Evolution API'
         });
     }
 });
 
 /**
- * ENDPOINT: List Members
- * Mengambil daftar seluruh member dari database
+ * ENDPOINT: Ambil Semua Member
  */
 app.get('/members', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM members ORDER BY created_at DESC');
         res.json(result.rows);
     } catch (err) {
-        res.status(500).json({ error: 'Gagal mengambil data member dari database' });
+        res.status(500).json({ error: 'Gagal mengambil data member: ' + err.message });
     }
 });
 
 /**
- * Health Check untuk monitoring Easypanel
+ * Health Check untuk Easypanel
  */
 app.get('/health', (req, res) => res.send('Manager Service Online'));
 
