@@ -13,15 +13,19 @@
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
         .glass-effect { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); }
+        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useCallback } = React;
 
         const API_BASE_URL = window.location.origin; 
+        // Ganti URL ini sesuai dengan URL Evolution API Anda untuk fetch QR langsung
+        const EVO_URL = "https://easy-evo.nganjuk.net"; 
 
         const Icon = ({ name, size = 20, className = "" }) => {
             useEffect(() => { lucide.createIcons(); }, [name]);
@@ -35,6 +39,12 @@
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
             const [success, setSuccess] = useState(null);
+            
+            // State untuk QR Code Modal
+            const [showQRModal, setShowQRModal] = useState(false);
+            const [selectedInstance, setSelectedInstance] = useState(null);
+            const [qrBase64, setQrBase64] = useState("");
+            const [qrLoading, setQrLoading] = useState(false);
 
             const [loginForm, setLoginForm] = useState({ name: '', apiKey: '' });
             const [registerForm, setRegisterForm] = useState({ name: '', customToken: '' });
@@ -51,18 +61,10 @@
 
             const fetchMembers = async (tokenOverride) => {
                 const token = tokenOverride || localStorage.getItem('manager_token');
-                if (!token) return;
-
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/members`, {
                         headers: { 'apikey': token }
                     });
-                    
-                    if (response.status === 401) {
-                        handleLogout();
-                        return;
-                    }
-
                     if (response.ok) {
                         const data = await response.json();
                         setMembers(data);
@@ -75,7 +77,6 @@
                 setLoading(true);
                 setError(null);
                 try {
-                    // Admin login bypass ke backend local auth
                     if (loginForm.name === 'admin' && loginForm.apiKey === 'nganjuk123') {
                         setIsLoggedIn(true);
                         setUserRole('admin');
@@ -95,97 +96,72 @@
                             localStorage.setItem('manager_token', loginForm.apiKey);
                             localStorage.setItem('manager_name', loginForm.name);
                             localStorage.setItem('manager_role', 'member');
-                        } else {
-                            setError(result.error || 'Login Gagal');
-                        }
+                        } else { setError(result.error || 'Login Gagal'); }
                     }
-                } catch (err) { setError('Koneksi ke API Gagal'); }
+                } catch (err) { setError('Koneksi Gagal'); }
                 finally { setLoading(false); }
+            };
+
+            const handleOpenQR = async (instanceName) => {
+                setSelectedInstance(instanceName);
+                setShowQRModal(true);
+                setQrLoading(true);
+                setQrBase64("");
+                setError(null);
+
+                const token = localStorage.getItem('manager_token');
+                
+                try {
+                    // Kita panggil Evolution API langsung atau via backend proxy
+                    // Di sini kita asumsikan panggil langsung ke Evolution API
+                    const response = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, {
+                        headers: { 'apikey': 'nganjuk123' } // Menggunakan master key admin
+                    });
+                    const data = await response.json();
+                    
+                    if (data.base64) {
+                        setQrBase64(data.base64);
+                    } else if (data.message) {
+                        setError(data.message);
+                    }
+                } catch (err) {
+                    setError("Gagal memuat QR Code. Pastikan Evolution API aktif.");
+                } finally {
+                    setQrLoading(false);
+                }
             };
 
             const handleRegister = async (e) => {
                 e.preventDefault();
                 setLoading(true);
                 setError(null);
-                setSuccess(null);
-                
                 const token = localStorage.getItem('manager_token');
-                
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/register-member`, {
                         method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json', 
-                            'apikey': token 
-                        },
+                        headers: { 'Content-Type': 'application/json', 'apikey': token },
                         body: JSON.stringify(registerForm)
                     });
-                    
-                    const result = await response.json();
-                    
                     if (response.ok) {
-                        setSuccess(`Instance ${registerForm.name} Berhasil Dibuat!`);
+                        setSuccess(`Berhasil!`);
                         setRegisterForm({ name: '', customToken: '' });
                         fetchMembers(token);
-                    } else {
-                        // Jika 401, berarti apikey di header salah/tidak sesuai MASTER_KEY backend
-                        if (response.status === 401) {
-                            setError("Sesi Admin Tidak Valid. Silakan Login Ulang.");
-                        } else {
-                            setError(result.details?.message || result.error || 'Gagal membuat instance');
-                        }
-                    }
-                } catch (err) {
-                    setError('Terjadi kesalahan jaringan atau server offline');
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            const handleDelete = async (name) => {
-                if (!confirm(`Hapus ${name}?`)) return;
-                const token = localStorage.getItem('manager_token');
-                try {
-                    const response = await fetch(`${API_BASE_URL}/api/delete-member/${name}`, {
-                        method: 'DELETE',
-                        headers: { 'apikey': token }
-                    });
-                    if (response.ok) fetchMembers(token);
-                } catch (err) { setError("Gagal menghapus"); }
-            };
-
-            const handleLogout = () => {
-                localStorage.clear();
-                setIsLoggedIn(false);
-                setUserRole(null);
-                window.location.reload();
+                    } else { setError('Gagal registrasi'); }
+                } catch (err) { setError('Error jaringan'); }
+                finally { setLoading(false); }
             };
 
             if (!isLoggedIn) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950">
-                        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-                            <h1 className="text-2xl font-black text-white text-center mb-6 uppercase tracking-widest">Evo Login</h1>
+                        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl text-center">
+                            <Icon name="zap" size={48} className="text-blue-500 mx-auto mb-4" />
+                            <h1 className="text-2xl font-black text-white mb-6 uppercase tracking-widest">Evo Login</h1>
                             <form onSubmit={handleLogin} className="space-y-4">
-                                <input 
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Username"
-                                    value={loginForm.name}
-                                    onChange={e => setLoginForm({...loginForm, name: e.target.value})}
-                                    required
-                                />
-                                <input 
-                                    type="password"
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="API Key"
-                                    value={loginForm.apiKey}
-                                    onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})}
-                                    required
-                                />
+                                <input className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="Username" value={loginForm.name} onChange={e => setLoginForm({...loginForm, name: e.target.value})} required />
+                                <input type="password" className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="API Key" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} required />
                                 {error && <div className="text-red-400 text-xs bg-red-500/10 p-3 rounded-xl border border-red-500/20">{error}</div>}
-                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">
-                                    {loading ? "Loading..." : "Masuk"}
-                                </button>
+                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">Masuk</button>
                             </form>
                         </div>
                     </div>
@@ -194,93 +170,86 @@
 
             return (
                 <div className="min-h-screen flex flex-col md:flex-row bg-slate-950">
-                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col">
-                        <div className="font-black text-white text-xl mb-10 tracking-tighter">MANAGER API</div>
+                    {/* Sidebar */}
+                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl">
+                        <div className="font-black text-white text-xl mb-10 tracking-tighter flex items-center gap-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><Icon name="cpu" size={16}/></div>
+                            MANAGER API
+                        </div>
                         <nav className="flex-1 space-y-2">
                             <div className="bg-blue-600/10 text-blue-400 p-3 rounded-xl font-bold flex items-center gap-3">
                                 <Icon name="layout" /> Dashboard
                             </div>
                         </nav>
-                        <button onClick={handleLogout} className="text-red-400 font-bold p-3 hover:bg-red-500/10 rounded-xl flex items-center gap-3 w-full text-left">
-                            <Icon name="log-out" /> Keluar
+                        <button onClick={() => {localStorage.clear(); window.location.reload();}} className="text-slate-500 font-bold p-3 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3">
+                            <Icon name="log-out" /> Logout
                         </button>
                     </aside>
 
+                    {/* Main Content */}
                     <main className="flex-1 p-8 overflow-y-auto">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h2 className="text-2xl font-black text-white">Device Control</h2>
+                                <p className="text-slate-500 text-sm">Hubungkan dan kelola instance WhatsApp</p>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {userRole === 'admin' ? (
+                            {/* Form Tambah (Admin Only) */}
+                            {userRole === 'admin' && (
                                 <div className="lg:col-span-1 bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl">
-                                    <h3 className="font-black text-white mb-6 uppercase text-sm tracking-widest">Register Instance</h3>
+                                    <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest text-slate-400">Pendaftaran Baru</h3>
                                     <form onSubmit={handleRegister} className="space-y-4">
-                                        <input 
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Nama Instance"
-                                            value={registerForm.name}
-                                            onChange={e => setRegisterForm({...registerForm, name: e.target.value})}
-                                            required
-                                        />
-                                        <input 
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Token Member"
-                                            value={registerForm.customToken}
-                                            onChange={e => setRegisterForm({...registerForm, customToken: e.target.value})}
-                                            required
-                                        />
-                                        {error && <div className="text-red-400 text-[10px] bg-red-500/10 p-2 rounded-lg border border-red-500/10">{error}</div>}
-                                        {success && <div className="text-green-400 text-[10px] bg-green-500/10 p-2 rounded-lg border border-green-500/10 font-bold">{success}</div>}
-                                        <button disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-600/20">
-                                            {loading ? "Processing..." : "Create Now"}
-                                        </button>
+                                        <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID Instance (e.g. toko_abc)" value={registerForm.name} onChange={e => setRegisterForm({...registerForm, name: e.target.value})} required />
+                                        <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="API Key Member" value={registerForm.customToken} onChange={e => setRegisterForm({...registerForm, customToken: e.target.value})} required />
+                                        {error && <div className="text-red-400 text-[10px]">{error}</div>}
+                                        {success && <div className="text-green-400 text-[10px] font-bold">{success}</div>}
+                                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">Daftarkan Member</button>
                                     </form>
-                                </div>
-                            ) : (
-                                <div className="lg:col-span-1 bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl">
-                                    <h3 className="font-black text-white mb-2 uppercase text-sm tracking-widest">Sesi Member</h3>
-                                    <p className="text-slate-500 text-xs mb-4">Anda login sebagai member.</p>
-                                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                                        <p className="text-[10px] font-black text-slate-600 uppercase mb-1">Instance Aktif</p>
-                                        <p className="font-bold text-blue-400 uppercase">{localStorage.getItem('manager_name')}</p>
-                                    </div>
                                 </div>
                             )}
 
-                            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden">
-                                <div className="p-6 border-b border-slate-800 font-black text-white uppercase text-sm tracking-widest">
-                                    {userRole === 'admin' ? "All Instances" : "My Instance Info"}
-                                </div>
+                            {/* List Instance */}
+                            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden shadow-xl">
+                                <div className="p-6 border-b border-slate-800 font-bold text-white uppercase text-xs tracking-widest text-slate-400">Daftar Koneksi</div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left">
-                                        <thead className="bg-slate-950/50 text-[10px] text-slate-500 font-black uppercase">
+                                        <thead className="bg-slate-950/50 text-[10px] text-slate-500 font-black uppercase tracking-widest">
                                             <tr>
-                                                <th className="p-5">Name</th>
-                                                <th className="p-5">Status</th>
-                                                <th className="p-5 text-right">Action</th>
+                                                <th className="p-5">Device Name</th>
+                                                <th className="p-5">WhatsApp Scan</th>
+                                                <th className="p-5 text-right">Delete</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
-                                            {userRole === 'admin' ? (
-                                                members.length > 0 ? members.map(m => (
-                                                    <tr key={m.instance_name} className="hover:bg-slate-800/20">
-                                                        <td className="p-5 font-bold text-white uppercase text-xs">{m.instance_name}</td>
-                                                        <td className="p-5">
-                                                            <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-1 rounded font-black uppercase">Active</span>
-                                                        </td>
-                                                        <td className="p-5 text-right">
-                                                            <button onClick={() => handleDelete(m.instance_name)} className="text-slate-600 hover:text-red-500 transition-colors">
-                                                                <Icon name="trash-2" size={16} />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                )) : (
-                                                    <tr><td colSpan="3" className="p-10 text-center text-slate-600 text-xs italic font-bold">No instances found.</td></tr>
-                                                )
-                                            ) : (
-                                                <tr>
+                                            {userRole === 'admin' ? members.map(m => (
+                                                <tr key={m.instance_name} className="hover:bg-slate-800/20 transition-all">
+                                                    <td className="p-5 font-bold text-white uppercase text-xs tracking-tighter">{m.instance_name}</td>
+                                                    <td className="p-5">
+                                                        <button 
+                                                            onClick={() => handleOpenQR(m.instance_name)}
+                                                            className="flex items-center gap-2 bg-blue-600/10 text-blue-400 px-4 py-2 rounded-lg text-[10px] font-black uppercase border border-blue-500/20 hover:bg-blue-600 hover:text-white transition-all shadow-lg shadow-blue-600/5"
+                                                        >
+                                                            <Icon name="qr-code" size={14}/> Scan Sekarang
+                                                        </button>
+                                                    </td>
+                                                    <td className="p-5 text-right">
+                                                        <button onClick={() => {if(confirm('Hapus?')) fetch(`${API_BASE_URL}/api/delete-member/${m.instance_name}`, {method:'DELETE', headers:{'apikey':localStorage.getItem('manager_token')}}).then(()=>fetchMembers())}} className="text-slate-600 hover:text-red-500 transition-colors p-2"><Icon name="trash-2" size={16} /></button>
+                                                    </td>
+                                                </tr>
+                                            )) : (
+                                                <tr className="bg-slate-800/20">
                                                     <td className="p-5 font-bold text-white uppercase text-xs">{localStorage.getItem('manager_name')}</td>
                                                     <td className="p-5">
-                                                        <span className="text-[10px] bg-blue-500/10 text-blue-500 px-2 py-1 rounded font-black uppercase">Member Mode</span>
+                                                        <button 
+                                                            onClick={() => handleOpenQR(localStorage.getItem('manager_name'))}
+                                                            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase shadow-lg shadow-blue-600/20 animate-pulse-soft"
+                                                        >
+                                                            <Icon name="qr-code" size={14}/> Klik untuk Scan WA
+                                                        </button>
                                                     </td>
-                                                    <td className="p-5 text-right text-slate-600 text-[10px] font-bold">READ ONLY</td>
+                                                    <td className="p-5 text-right text-slate-700 text-[10px] font-black">USER ONLY</td>
                                                 </tr>
                                             )}
                                         </tbody>
@@ -288,6 +257,50 @@
                                 </div>
                             </div>
                         </div>
+
+                        {/* QR CODE MODAL */}
+                        {showQRModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+                                <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-center relative overflow-hidden">
+                                    <button onClick={() => setShowQRModal(false)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><Icon name="x" /></button>
+                                    
+                                    <div className="mb-6">
+                                        <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mx-auto mb-4 text-blue-500 border border-blue-500/20">
+                                            <Icon name="smartphone" size={32} />
+                                        </div>
+                                        <h3 className="text-xl font-black text-white uppercase tracking-tighter">Scan WhatsApp</h3>
+                                        <p className="text-slate-500 text-xs mt-1">Instance: <span className="text-blue-400 font-bold">{selectedInstance}</span></p>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-3xl inline-block shadow-inner relative group">
+                                        {qrLoading ? (
+                                            <div className="w-48 h-48 flex flex-col items-center justify-center bg-slate-100 rounded-2xl">
+                                                <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                                <p className="text-[10px] text-slate-400 mt-4 font-black uppercase tracking-widest">Generating QR...</p>
+                                            </div>
+                                        ) : qrBase64 ? (
+                                            <img src={qrBase64} alt="QR Code" className="w-48 h-48 rounded-xl" />
+                                        ) : (
+                                            <div className="w-48 h-48 flex items-center justify-center bg-red-50 text-red-500 p-4 text-[10px] font-bold">
+                                                {error || "Gagal mengambil QR. Cek koneksi server."}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-8 space-y-4">
+                                        <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
+                                            Buka WhatsApp di HP Anda → Menu/Setelan → Perangkat Tertaut → Tautkan Perangkat.
+                                        </p>
+                                        <button 
+                                            onClick={() => handleOpenQR(selectedInstance)}
+                                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl text-xs font-black uppercase transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <Icon name="refresh-cw" size={14} /> Refresh QR Code
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </main>
                 </div>
             );
