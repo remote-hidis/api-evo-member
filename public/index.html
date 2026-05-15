@@ -113,6 +113,26 @@
                 finally { setLoading(false); }
             };
 
+            // LOGIKA LOGOUT BARU: Membersihkan seluruh sesi secara total & aman
+            const handleLogout = () => {
+                // 1. Hapus item di localStorage secara spesifik
+                localStorage.removeItem('manager_token');
+                localStorage.removeItem('manager_role');
+                localStorage.removeItem('manager_name');
+
+                // 2. Reset total seluruh state React kembali ke awal (Clear Memory Session)
+                setIsLoggedIn(false);
+                setUserRole(null);
+                setMembers([]);
+                setLoginForm({ name: '', apiKey: '' });
+                setRegisterForm({ name: '', customToken: '' });
+                setDetailMember(null);
+                setSelectedInstance(null);
+                setQrBase64("");
+                setError(null);
+                setSuccess(null);
+            };
+
             const handleOpenQR = async (instanceName) => {
                 setSelectedInstance(instanceName);
                 setShowQRModal(true);
@@ -214,7 +234,7 @@
             return (
                 <div className="min-h-screen flex flex-col md:flex-row bg-slate-950">
                     
-                    {/* SIDEBAR FIXED (Perubahan Utama: Ditambahkan h-screen & sticky top agar tidak ikut tergulung) */}
+                    {/* SIDEBAR FIXED */}
                     <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl md:h-screen md:sticky md:top-0 z-40">
                         <div className="font-black text-white text-xl mb-10 tracking-tighter flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><Icon name="cpu" size={16}/></div>
@@ -225,8 +245,9 @@
                                 <Icon name="layout" /> Dashboard
                             </div>
                         </nav>
-                        {/* Tombol Logout sekarang terkunci aman di bagian bawah sidebar */}
-                        <button onClick={() => {localStorage.clear(); window.location.reload();}} className="text-slate-400 font-bold p-3 bg-slate-950/40 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3 border border-slate-800/50 mt-auto">
+                        
+                        {/* Tombol Logout memanggil fungsi handleLogout */}
+                        <button onClick={handleLogout} className="text-slate-400 font-bold p-3 bg-slate-950/40 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3 border border-slate-800/50 mt-auto">
                             <Icon name="log-out" /> Logout
                         </button>
                     </aside>
