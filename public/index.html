@@ -39,13 +39,13 @@
             const [error, setError] = useState(null);
             const [success, setSuccess] = useState(null);
             
-            // State untuk QR Code Modal
+            // State QR Code Modal
             const [showQRModal, setShowQRModal] = useState(false);
             const [selectedInstance, setSelectedInstance] = useState(null);
             const [qrBase64, setQrBase64] = useState("");
             const [qrLoading, setQrLoading] = useState(false);
 
-            // State untuk Detail/Edit Member Modal
+            // State Detail/Edit Member Modal
             const [showDetailModal, setShowDetailModal] = useState(false);
             const [detailMember, setDetailMember] = useState(null);
             const [detailLoading, setDetailLoading] = useState(false);
@@ -175,9 +175,8 @@
                 finally { setLoading(false); }
             };
 
-            // FIX: Sekarang fungsi ini mengirimkan instanceName langsung ke endpoint baru backend
             const handleDeleteMember = async (instanceName) => {
-                if (confirm(`Apakah Anda yakin ingin menghapus member '${instanceName}' secara permanen dari sistem dan Evolution API?`)) {
+                if (confirm(`Apakah Anda yakin ingin menghapus member '${instanceName}'?`)) {
                     const token = localStorage.getItem('manager_token');
                     try {
                         const response = await fetch(`${API_BASE_URL}/api/members/instance/${instanceName}`, {
@@ -187,9 +186,7 @@
                         if (response.ok) {
                             setSuccess(`Member '${instanceName}' berhasil dihapus.`);
                             fetchMembers(token);
-                        } else {
-                            setError('Gagal menghapus member');
-                        }
+                        } else { setError('Gagal menghapus member'); }
                     } catch (err) { setError('Error jaringan'); }
                 }
             };
@@ -216,8 +213,9 @@
 
             return (
                 <div className="min-h-screen flex flex-col md:flex-row bg-slate-950">
-                    {/* Sidebar */}
-                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl">
+                    
+                    {/* SIDEBAR FIXED (Perubahan Utama: Ditambahkan h-screen & sticky top agar tidak ikut tergulung) */}
+                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl md:h-screen md:sticky md:top-0 z-40">
                         <div className="font-black text-white text-xl mb-10 tracking-tighter flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><Icon name="cpu" size={16}/></div>
                             MANAGER API
@@ -227,7 +225,8 @@
                                 <Icon name="layout" /> Dashboard
                             </div>
                         </nav>
-                        <button onClick={() => {localStorage.clear(); window.location.reload();}} className="text-slate-500 font-bold p-3 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3">
+                        {/* Tombol Logout sekarang terkunci aman di bagian bawah sidebar */}
+                        <button onClick={() => {localStorage.clear(); window.location.reload();}} className="text-slate-400 font-bold p-3 bg-slate-950/40 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3 border border-slate-800/50 mt-auto">
                             <Icon name="log-out" /> Logout
                         </button>
                     </aside>
@@ -246,7 +245,7 @@
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             {userRole === 'admin' && (
-                                <div className="lg:col-span-1 bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl">
+                                <div className="lg:col-span-1 bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl h-fit">
                                     <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest text-slate-400">Pendaftaran Baru</h3>
                                     <form onSubmit={handleRegister} className="space-y-4">
                                         <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID Instance (e.g. toko_abc)" value={registerForm.name} onChange={e => setRegisterForm({...registerForm, name: e.target.value})} required />
@@ -257,7 +256,7 @@
                             )}
 
                             {/* List Instance */}
-                            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden shadow-xl">
+                            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden shadow-xl h-fit">
                                 <div className="p-6 border-b border-slate-800 font-bold text-white uppercase text-xs tracking-widest text-slate-400">Daftar Koneksi</div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left">
@@ -290,7 +289,6 @@
                                                         <button onClick={() => handleOpenDetail(m.id)} className="text-slate-400 hover:text-blue-400 transition-colors p-2" title="Edit Member">
                                                             <Icon name="sliders" size={16} />
                                                         </button>
-                                                        {/* FIX: Di sini m.instance_name dikirim langsung ke fungsi hapus */}
                                                         <button onClick={() => handleDeleteMember(m.instance_name)} className="text-slate-600 hover:text-red-500 transition-colors p-2" title="Hapus Member">
                                                             <Icon name="trash-2" size={16} />
                                                         </button>
@@ -364,7 +362,7 @@
                         {/* QR CODE MODAL */}
                         {showQRModal && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
-                                <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-center relative overflow-hidden">
+                                <div className="bg-slate-900 border border-slate-800 w-full max-sm rounded-[2.5rem] p-8 shadow-2xl text-center relative overflow-hidden">
                                     <button onClick={() => setShowQRModal(false)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><Icon name="x" /></button>
                                     
                                     <div className="mb-6">
