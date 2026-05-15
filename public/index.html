@@ -114,24 +114,31 @@
             };
 
             // LOGIKA LOGOUT BARU: Membersihkan seluruh sesi secara total & aman
-            const handleLogout = () => {
-                // 1. Hapus item di localStorage secara spesifik
-                localStorage.removeItem('manager_token');
-                localStorage.removeItem('manager_role');
-                localStorage.removeItem('manager_name');
+const handleLogout = async () => {
+    const token = localStorage.getItem('manager_token');
+    
+    try {
+        // Beritahu API backend terlebih dahulu bahwa kita ingin logout
+        await fetch(`${API_BASE_URL}/api/logout`, {
+            method: 'POST',
+            headers: { 'apikey': token }
+        });
+    } catch (err) {
+        console.error("Gagal menghubungi server saat logout, tetap melanjutkan pembersihan lokal.", err);
+    } finally {
+        // Mau API sukses atau gagal (misal server mati), sisi lokal HARUS tetap dibersihkan demi keamanan
+        localStorage.removeItem('manager_token');
+        localStorage.removeItem('manager_role');
+        localStorage.removeItem('manager_name');
 
-                // 2. Reset total seluruh state React kembali ke awal (Clear Memory Session)
-                setIsLoggedIn(false);
-                setUserRole(null);
-                setMembers([]);
-                setLoginForm({ name: '', apiKey: '' });
-                setRegisterForm({ name: '', customToken: '' });
-                setDetailMember(null);
-                setSelectedInstance(null);
-                setQrBase64("");
-                setError(null);
-                setSuccess(null);
-            };
+        // Reset state React
+        setIsLoggedIn(false);
+        setUserRole(null);
+        setMembers([]);
+        setError(null);
+        setSuccess(null);
+    }
+};
 
             const handleOpenQR = async (instanceName) => {
                 setSelectedInstance(instanceName);
