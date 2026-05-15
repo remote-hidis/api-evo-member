@@ -211,7 +211,22 @@ app.delete('/api/members/instance/:instance_name', adminAuth, async (req, res) =
         res.status(500).json({ error: err.message });
     }
 });
+// [POST] Logout Member / Admin
+app.post('/api/logout', (req, res) => {
+    const apiKey = req.headers['apikey'];
 
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Tidak ada sesi aktif yang ditemukan' });
+    }
+
+    // CATATAN: Jika ke depannya Anda ingin mencatat log aktivitas (kapan user logout),
+    // Anda bisa melakukan query INSERT ke tabel log di sini menggunakan apiKey tersebut.
+
+    res.json({ 
+        status: 'Success', 
+        message: 'Sesi berhasil diakhiri pada sistem API. Silakan bersihkan penyimpanan lokal Anda.' 
+    });
+});
 // --- SPA FALLBACK ---
 // Pastikan route ini berada paling bawah setelah semua route API didefinisikan
 app.get('*', (req, res) => {
