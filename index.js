@@ -77,7 +77,6 @@ app.use(cors());
 app.use(express.json());
 
 // --- SERVE STATIC FILES ---
-// Ini akan membaca folder 'public' dan mencari 'index.html' secara otomatis
 app.use(express.static(path.join(__dirname, 'public')));
 
 const adminAuth = (req, res, next) => {
@@ -91,11 +90,11 @@ const adminAuth = (req, res, next) => {
 
 /**
  * ==========================================
- * Bagian 4: API ROUTES
+ * Bagian 4: API ROUTES (CRUD)
  * ==========================================
  */
 
-// Login Member
+// [READ] Login Member (Public)
 app.post('/api/login-member', async (req, res) => {
     const { name, apiKey } = req.body;
     try {
@@ -113,7 +112,7 @@ app.post('/api/login-member', async (req, res) => {
     }
 });
 
-// Register Member (Protected)
+// [CREATE] Register Member (Protected)
 app.post('/api/register-member', adminAuth, async (req, res) => {
     const { name, customToken } = req.body;
     try {
@@ -128,7 +127,7 @@ app.post('/api/register-member', adminAuth, async (req, res) => {
     }
 });
 
-// List Members (Protected)
+// [READ ALL] List Members (Protected)
 app.get('/api/members', adminAuth, async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM members ORDER BY created_at DESC');
@@ -138,9 +137,86 @@ app.get('/api/members', adminAuth, async (req, res) => {
     }
 });
 
+// [READ SINGLE] Get Member by ID (Protected)
+app.get('/api/members/:id', adminAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.query('SELECT * FROM members WHERE id = $1', [id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Member tidak ditemukan' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// [UPDATE] Update Member Status / API Key (Protected)
+app.put('/api/members/:id', adminAuth, async (req, res) => {
+    const { id } = req.params;
+    const { apiKey, status } = req.body; // Menerima data yang ingin diubah
+    
+    try {
+        // Cek apakah member ada
+        const memberCheck = await db.query('SELECT * FROM members WHERE id = $1', [id]);
+        if (memberCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Member tidak ditemukan' });
+        }
+
+        const currentMember = memberCheck.rows[0];
+        const updatedApiKey = apiKey || currentMember.api_key;
+        const updatedStatus = status || currentMember.status;
+
+        // Jalankan query update
+        const result = await db.query(
+            'UPDATE members SET api_key = $1, status = $2 WHERE id = $3 RETURNING *',
+            [updatedApiKey, updatedStatus, id]
+        );
+
+        res.json({ 
+            status: 'Success', 
+            message: 'Data member berhasil diperbarui', 
+            data: result.rows[0] 
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// [DELETE] Delete Member & Evolution Instance (Protected)
+app.delete('/api/members/:id', adminAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+        // 1. Ambil nama instance terlebih dahulu dari DB untuk menghapus di Evolution API
+        const memberCheck = await db.query('SELECT instance_name FROM members WHERE id = $1', [id]);
+        if (memberCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Member tidak ditemukan' });
+        }
+
+        const instanceName = memberCheck.rows[0].instance_name;
+
+        // 2. Hapus instance di Evolution API (dibungkus try-catch agar jika API luar error, proses DB opsional tetap aman)
+        try {
+            await evolutionService.deleteInstance(instanceName);
+        } catch (evoErr) {
+            console.error(`⚠️ Gagal menghapus instance '${instanceName}' di Evolution API:`, evoErr.message);
+            // Tetap lanjutkan penghapusan di DB lokal Anda meski Evolution API gagal/tidak ditemukan
+        }
+
+        // 3. Hapus data member dari database lokal
+        await db.query('DELETE FROM members WHERE id = $1', [id]);
+
+        res.json({ 
+            status: 'Success', 
+            message: `Member '${instanceName}' berhasil dihapus dari sistem dan Evolution API.` 
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- SPA FALLBACK ---
-// Jika user mengakses route yang tidak terdaftar (misal refresh halaman di browser)
-// Arahkan kembali ke index.html agar React yang menangani routingnya
+// Pastikan route ini berada paling bawah setelah semua route API didefinisikan
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
