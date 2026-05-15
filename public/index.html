@@ -24,7 +24,6 @@
         const { useState, useEffect, useCallback } = React;
 
         const API_BASE_URL = window.location.origin; 
-        // Ganti URL ini sesuai dengan URL Evolution API Anda untuk fetch QR langsung
         const EVO_URL = "https://easy-evo.nganjuk.net"; 
 
         const Icon = ({ name, size = 20, className = "" }) => {
@@ -46,8 +45,21 @@
             const [qrBase64, setQrBase64] = useState("");
             const [qrLoading, setQrLoading] = useState(false);
 
+            // State baru untuk Detail/Edit Member Modal (Menangani api/members/:id)
+            const [showDetailModal, setShowDetailModal] = useState(false);
+            const [detailMember, setDetailMember] = useState(null);
+            const [detailLoading, setDetailLoading] = useState(false);
+
             const [loginForm, setLoginForm] = useState({ name: '', apiKey: '' });
             const [registerForm, setRegisterForm] = useState({ name: '', customToken: '' });
+
+            // Menghilangkan flash message otomatis
+            useEffect(() => {
+                if (success || error) {
+                    const timer = setTimeout(() => { setSuccess(null); setError(null); }, 4000);
+                    return () => clearTimeout(timer);
+                }
+            }, [success, error]);
 
             useEffect(() => {
                 const token = localStorage.getItem('manager_token');
@@ -107,18 +119,12 @@
                 setShowQRModal(true);
                 setQrLoading(true);
                 setQrBase64("");
-                setError(null);
 
-                const token = localStorage.getItem('manager_token');
-                
                 try {
-                    // Kita panggil Evolution API langsung atau via backend proxy
-                    // Di sini kita asumsikan panggil langsung ke Evolution API
                     const response = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, {
-                        headers: { 'apikey': 'nganjuk123' } // Menggunakan master key admin
+                        headers: { 'apikey': 'nganjuk123' }
                     });
                     const data = await response.json();
-                    
                     if (data.base64) {
                         setQrBase64(data.base64);
                     } else if (data.message) {
@@ -128,6 +134,73 @@
                     setError("Gagal memuat QR Code. Pastikan Evolution API aktif.");
                 } finally {
                     setQrLoading(false);
+                }
+            };
+
+            // FUNGSI BARU: Mendeteksi & Mengambil Detail Member via /api/members/:id
+            const handleOpenDetail = async (id) => {
+                setShowDetailModal(true);
+                setDetailLoading(true);
+                setDetailMember(null);
+                const token = localStorage.getItem('manager_token');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/members/${id}`, {
+                        headers: { 'apikey': token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        setDetailMember(data);
+                    } else {
+                        setError('Gagal memuat data detail member');
+                    }
+                } catch (err) {
+                    setError('Gangguan jaringan saat memuat detail');
+                } finally {
+                    setDetailLoading(false);
+                }
+            };
+
+            // FUNGSI BARU: Menyimpan Perubahan Update via /api/members/:id
+            const handleUpdateMember = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                const token = localStorage.getItem('manager_token');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/members/${detailMember.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'apikey': token },
+                        body: JSON.stringify({
+                            apiKey: detailMember.api_key,
+                            status: detailMember.status
+                        })
+                    });
+                    if (response.ok) {
+                        setSuccess('Data member berhasil diperbarui!');
+                        setShowDetailModal(false);
+                        fetchMembers(token);
+                    } else {
+                        setError('Gagal memperbarui data');
+                    }
+                } catch (err) { setError('Error jaringan'); }
+                finally { setLoading(false); }
+            };
+
+            // REVISI FUNGSI: Menyesuaikan Endpoint Delete Sesuai CRUD API Lokal Baru (/api/members/:id)
+            const handleDeleteMember = async (id, name) => {
+                if (confirm(`Apakah Anda yakin ingin menghapus member '${name}' secara permanen dari sistem dan Evolution API?`)) {
+                    const token = localStorage.getItem('manager_token');
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/members/${id}`, {
+                            method: 'DELETE',
+                            headers: { 'apikey': token }
+                        });
+                        if (response.ok) {
+                            setSuccess(`Member '${name}' berhasil dihapus.`);
+                            fetchMembers(token);
+                        } else {
+                            setError('Gagal menghapus member dari database');
+                        }
+                    } catch (err) { setError('Error jaringan'); }
                 }
             };
 
@@ -143,7 +216,7 @@
                         body: JSON.stringify(registerForm)
                     });
                     if (response.ok) {
-                        setSuccess(`Berhasil!`);
+                        setSuccess(`Berhasil mendaftarkan member baru!`);
                         setRegisterForm({ name: '', customToken: '' });
                         fetchMembers(token);
                     } else { setError('Gagal registrasi'); }
@@ -195,6 +268,10 @@
                             </div>
                         </div>
 
+                        {/* Flash Alerts Global */}
+                        {error && <div className="mb-4 text-red-400 text-xs bg-red-500/10 p-4 rounded-xl border border-red-500/20">{error}</div>}
+                        {success && <div className="mb-4 text-green-400 text-xs bg-green-500/10 p-4 rounded-xl border border-green-500/20">{success}</div>}
+
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             {/* Form Tambah (Admin Only) */}
                             {userRole === 'admin' && (
@@ -203,8 +280,6 @@
                                     <form onSubmit={handleRegister} className="space-y-4">
                                         <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID Instance (e.g. toko_abc)" value={registerForm.name} onChange={e => setRegisterForm({...registerForm, name: e.target.value})} required />
                                         <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="API Key Member" value={registerForm.customToken} onChange={e => setRegisterForm({...registerForm, customToken: e.target.value})} required />
-                                        {error && <div className="text-red-400 text-[10px]">{error}</div>}
-                                        {success && <div className="text-green-400 text-[10px] font-bold">{success}</div>}
                                         <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">Daftarkan Member</button>
                                     </form>
                                 </div>
@@ -218,29 +293,41 @@
                                         <thead className="bg-slate-950/50 text-[10px] text-slate-500 font-black uppercase tracking-widest">
                                             <tr>
                                                 <th className="p-5">Device Name</th>
+                                                <th className="p-5">Status</th>
                                                 <th className="p-5">WhatsApp Scan</th>
-                                                <th className="p-5 text-right">Delete</th>
+                                                <th className="p-5 text-right">Aksi</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
                                             {userRole === 'admin' ? members.map(m => (
-                                                <tr key={m.instance_name} className="hover:bg-slate-800/20 transition-all">
+                                                <tr key={m.id} className="hover:bg-slate-800/20 transition-all">
                                                     <td className="p-5 font-bold text-white uppercase text-xs tracking-tighter">{m.instance_name}</td>
+                                                    <td className="p-5">
+                                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${m.status === 'active' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                                                            {m.status}
+                                                        </span>
+                                                    </td>
                                                     <td className="p-5">
                                                         <button 
                                                             onClick={() => handleOpenQR(m.instance_name)}
                                                             className="flex items-center gap-2 bg-blue-600/10 text-blue-400 px-4 py-2 rounded-lg text-[10px] font-black uppercase border border-blue-500/20 hover:bg-blue-600 hover:text-white transition-all shadow-lg shadow-blue-600/5"
                                                         >
-                                                            <Icon name="qr-code" size={14}/> Scan Sekarang
+                                                            <Icon name="qr-code" size={14}/> Scan QR
                                                         </button>
                                                     </td>
-                                                    <td className="p-5 text-right">
-                                                        <button onClick={() => {if(confirm('Hapus?')) fetch(`${API_BASE_URL}/api/delete-member/${m.instance_name}`, {method:'DELETE', headers:{'apikey':localStorage.getItem('manager_token')}}).then(()=>fetchMembers())}} className="text-slate-600 hover:text-red-500 transition-colors p-2"><Icon name="trash-2" size={16} /></button>
+                                                    <td className="p-5 text-right flex items-center justify-end gap-2">
+                                                        <button onClick={() => handleOpenDetail(m.id)} className="text-slate-400 hover:text-blue-400 transition-colors p-2" title="Edit Member">
+                                                            <Icon name="sliders" size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleDeleteMember(m.id, m.instance_name)} className="text-slate-600 hover:text-red-500 transition-colors p-2" title="Hapus Member">
+                                                            <Icon name="trash-2" size={16} />
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             )) : (
                                                 <tr className="bg-slate-800/20">
                                                     <td className="p-5 font-bold text-white uppercase text-xs">{localStorage.getItem('manager_name')}</td>
+                                                    <td className="p-5"><span className="px-3 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded-full text-[10px] font-black uppercase">Active</span></td>
                                                     <td className="p-5">
                                                         <button 
                                                             onClick={() => handleOpenQR(localStorage.getItem('manager_name'))}
@@ -257,6 +344,51 @@
                                 </div>
                             </div>
                         </div>
+
+                        {/* MODAL BARU: DETAIL & EDIT MEMBER (Deteksi api/members/:id) */}
+                        {showDetailModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+                                <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
+                                    <button onClick={() => setShowDetailModal(false)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><Icon name="x" /></button>
+                                    
+                                    <div className="mb-6 text-center">
+                                        <div className="w-14 h-14 bg-blue-600/20 rounded-2xl flex items-center justify-center mx-auto mb-3 text-blue-500 border border-blue-500/20">
+                                            <Icon name="sliders" size={28} />
+                                        </div>
+                                        <h3 className="text-xl font-black text-white uppercase tracking-tighter">Pengaturan Member</h3>
+                                        <p className="text-slate-500 text-xs mt-1">ID DB Target: <span className="text-blue-400 font-mono">/api/members/{detailMember?.id || '...'}</span></p>
+                                    </div>
+
+                                    {detailLoading ? (
+                                        <div className="py-12 text-center text-slate-500 text-xs font-bold uppercase animate-pulse">Memuat Data dari API...</div>
+                                    ) : detailMember ? (
+                                        <form onSubmit={handleUpdateMember} className="space-y-4">
+                                            <div>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Instance Name (Read-Only)</label>
+                                                <input className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 text-sm text-slate-400 outline-none cursor-not-allowed" value={detailMember.instance_name} disabled />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">API Key / Token Member</label>
+                                                <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono" value={detailMember.api_key} onChange={e => setDetailMember({...detailMember, api_key: e.target.value})} required />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Status Akun</label>
+                                                <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" value={detailMember.status} onChange={e => setDetailMember({...detailMember, status: e.target.value})}>
+                                                    <option value="active">Active (Aktif)</option>
+                                                    <option value="suspended">Suspended (Blokir)</option>
+                                                </select>
+                                            </div>
+                                            <div className="pt-4 flex gap-3">
+                                                <button type="button" onClick={() => setShowDetailModal(false)} className="w-1/3 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all text-xs uppercase">Batal</button>
+                                                <button type="submit" className="w-2/3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all text-xs uppercase">Simpan Perubahan</button>
+                                            </div>
+                                        </form>
+                                    ) : (
+                                        <div className="text-center text-red-400 text-xs">Gagal mengambil data dari API Server.</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* QR CODE MODAL */}
                         {showQRModal && (
@@ -282,7 +414,7 @@
                                             <img src={qrBase64} alt="QR Code" className="w-48 h-48 rounded-xl" />
                                         ) : (
                                             <div className="w-48 h-48 flex items-center justify-center bg-red-50 text-red-500 p-4 text-[10px] font-bold">
-                                                {error || "Gagal mengambil QR. Cek koneksi server."}
+                                                Gagal mengambil QR. Cek koneksi server.
                                             </div>
                                         )}
                                     </div>
