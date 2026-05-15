@@ -184,31 +184,28 @@ app.put('/api/members/:id', adminAuth, async (req, res) => {
 });
 
 // [DELETE] Delete Member & Evolution Instance (Protected)
-app.delete('/api/members/:id', adminAuth, async (req, res) => {
-    const { id } = req.params;
+// [DELETE] Delete Member & Evolution Instance berdasarkan Instance Name langsung
+app.delete('/api/members/instance/:instance_name', adminAuth, async (req, res) => {
+    const { instance_name } = req.params;
     try {
-        // 1. Ambil nama instance terlebih dahulu dari DB untuk menghapus di Evolution API
-        const memberCheck = await db.query('SELECT instance_name FROM members WHERE id = $1', [id]);
-        if (memberCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Member tidak ditemukan' });
-        }
-
-        const instanceName = memberCheck.rows[0].instance_name;
-
-        // 2. Hapus instance di Evolution API (dibungkus try-catch agar jika API luar error, proses DB opsional tetap aman)
+        // 1. Langsung hapus instance di Evolution API menggunakan nama instance
         try {
-            await evolutionService.deleteInstance(instanceName);
+            await evolutionService.deleteInstance(instance_name);
         } catch (evoErr) {
-            console.error(`⚠️ Gagal menghapus instance '${instanceName}' di Evolution API:`, evoErr.message);
-            // Tetap lanjutkan penghapusan di DB lokal Anda meski Evolution API gagal/tidak ditemukan
+            console.error(`⚠️ Gagal menghapus instance '${instance_name}' di Evolution API:`, evoErr.message);
+            // Tetap lanjutkan agar data lokal bisa dibersihkan jika di Evolution sudah hilang
         }
 
-        // 3. Hapus data member dari database lokal
-        await db.query('DELETE FROM members WHERE id = $1', [id]);
+        // 2. Hapus data member dari database lokal berdasarkan instance_name
+        const result = await db.query('DELETE FROM members WHERE instance_name = $1', [instance_name]);
+        
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Member tidak ditemukan di database' });
+        }
 
         res.json({ 
             status: 'Success', 
-            message: `Member '${instanceName}' berhasil dihapus dari sistem dan Evolution API.` 
+            message: `Member '${instance_name}' berhasil dihapus dari sistem dan Evolution API.` 
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
