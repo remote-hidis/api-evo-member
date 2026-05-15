@@ -26,9 +26,10 @@
         const API_BASE_URL = window.location.origin; 
         const EVO_URL = "https://easy-evo.nganjuk.net"; 
 
+        // FIX 1: Ditambahkan 'pointer-events-none' agar manipulasi SVG Lucide tidak menelan/merusak Event Click React
         const Icon = ({ name, size = 20, className = "" }) => {
             useEffect(() => { lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+            return <i data-lucide={name} style={{ width: size, height: size }} className={`pointer-events-none inline-block ${className}`}></i>;
         };
 
         const App = () => {
@@ -113,32 +114,24 @@
                 finally { setLoading(false); }
             };
 
-            // LOGIKA LOGOUT BARU: Membersihkan seluruh sesi secara total & aman
-const handleLogout = async () => {
-    const token = localStorage.getItem('manager_token');
-    
-    try {
-        // Beritahu API backend terlebih dahulu bahwa kita ingin logout
-        await fetch(`${API_BASE_URL}/api/logout`, {
-            method: 'POST',
-            headers: { 'apikey': token }
-        });
-    } catch (err) {
-        console.error("Gagal menghubungi server saat logout, tetap melanjutkan pembersihan lokal.", err);
-    } finally {
-        // Mau API sukses atau gagal (misal server mati), sisi lokal HARUS tetap dibersihkan demi keamanan
-        localStorage.removeItem('manager_token');
-        localStorage.removeItem('manager_role');
-        localStorage.removeItem('manager_name');
-
-        // Reset state React
-        setIsLoggedIn(false);
-        setUserRole(null);
-        setMembers([]);
-        setError(null);
-        setSuccess(null);
-    }
-};
+            // FIX 2: Fungsi Logout Total, Hapus Sesi API, Clear Storage, & Hard Reset Aplikasi
+            const handleLogoutClick = async () => {
+                const token = localStorage.getItem('manager_token');
+                try {
+                    // Hubungi API logout (opsional)
+                    await fetch(`${API_BASE_URL}/api/logout`, {
+                        method: 'POST',
+                        headers: { 'apikey': token }
+                    });
+                } catch (e) { 
+                    console.log("Server logout bypassed"); 
+                } finally {
+                    // Paksa hapus semua session tanpa sisa
+                    localStorage.clear();
+                    // Hard reload halaman untuk menghancurkan seluruh state memori React kembali ke nol
+                    window.location.reload();
+                }
+            };
 
             const handleOpenQR = async (instanceName) => {
                 setSelectedInstance(instanceName);
@@ -238,11 +231,28 @@ const handleLogout = async () => {
                 finally { setLoading(false); }
             };
 
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950">
+                        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl text-center">
+                            <Icon name="zap" size={48} className="text-blue-500 mx-auto mb-4" />
+                            <h1 className="text-2xl font-black text-white mb-6 uppercase tracking-widest">Evo Login</h1>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <input className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="Username" value={loginForm.name} onChange={e => setLoginForm({...loginForm, name: e.target.value})} required />
+                                <input type="password" className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="API Key" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} required />
+                                {error && <div className="text-red-400 text-xs bg-red-500/10 p-3 rounded-xl border border-red-500/20">{error}</div>}
+                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">Masuk</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className="min-h-screen flex flex-col md:flex-row bg-slate-950">
                     
                     {/* SIDEBAR FIXED */}
-                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl md:h-screen md:sticky md:top-0 z-40">
+                    <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col shadow-xl md:h-screen md:sticky md:top-0 z-50">
                         <div className="font-black text-white text-xl mb-10 tracking-tighter flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><Icon name="cpu" size={16}/></div>
                             MANAGER API
@@ -253,9 +263,13 @@ const handleLogout = async () => {
                             </div>
                         </nav>
                         
-                        {/* Tombol Logout memanggil fungsi handleLogout */}
-                        <button onClick={handleLogout} className="text-slate-400 font-bold p-3 bg-slate-950/40 hover:bg-red-500/10 hover:text-red-400 transition-all rounded-xl flex items-center gap-3 border border-slate-800/50 mt-auto">
-                            <Icon name="log-out" /> Logout
+                        {/* FIX 3: Ditambahkan parameter interaktif penuh agar tombol 100% responsif terhadap klik */}
+                        <button 
+                            type="button"
+                            onClick={handleLogoutClick} 
+                            className="w-full text-slate-400 font-bold p-3 bg-slate-950/60 hover:bg-red-500/20 hover:text-red-400 transition-all rounded-xl flex items-center justify-center md:justify-start gap-3 border border-slate-800/80 mt-auto cursor-pointer z-50 relative"
+                        >
+                            <Icon name="log-out" /> <span>Logout</span>
                         </button>
                     </aside>
 
