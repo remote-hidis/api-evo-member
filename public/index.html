@@ -21,7 +21,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback } = React;
+        const { useState, useEffect } = React;
 
         const API_BASE_URL = window.location.origin; 
         const EVO_URL = "https://easy-evo.nganjuk.net"; 
@@ -45,7 +45,7 @@
             const [qrBase64, setQrBase64] = useState("");
             const [qrLoading, setQrLoading] = useState(false);
 
-            // State baru untuk Detail/Edit Member Modal (Menangani api/members/:id)
+            // State untuk Detail/Edit Member Modal
             const [showDetailModal, setShowDetailModal] = useState(false);
             const [detailMember, setDetailMember] = useState(null);
             const [detailLoading, setDetailLoading] = useState(false);
@@ -53,7 +53,6 @@
             const [loginForm, setLoginForm] = useState({ name: '', apiKey: '' });
             const [registerForm, setRegisterForm] = useState({ name: '', customToken: '' });
 
-            // Menghilangkan flash message otomatis
             useEffect(() => {
                 if (success || error) {
                     const timer = setTimeout(() => { setSuccess(null); setError(null); }, 4000);
@@ -137,7 +136,6 @@
                 }
             };
 
-            // FUNGSI BARU: Mendeteksi & Mengambil Detail Member via /api/members/:id
             const handleOpenDetail = async (id) => {
                 setShowDetailModal(true);
                 setDetailLoading(true);
@@ -150,17 +148,11 @@
                     if (response.ok) {
                         const data = await response.json();
                         setDetailMember(data);
-                    } else {
-                        setError('Gagal memuat data detail member');
-                    }
-                } catch (err) {
-                    setError('Gangguan jaringan saat memuat detail');
-                } finally {
-                    setDetailLoading(false);
-                }
+                    } else { setError('Gagal memuat data detail member'); }
+                } catch (err) { setError('Gangguan jaringan'); }
+                finally { setDetailLoading(false); }
             };
 
-            // FUNGSI BARU: Menyimpan Perubahan Update via /api/members/:id
             const handleUpdateMember = async (e) => {
                 e.preventDefault();
                 setLoading(true);
@@ -178,27 +170,25 @@
                         setSuccess('Data member berhasil diperbarui!');
                         setShowDetailModal(false);
                         fetchMembers(token);
-                    } else {
-                        setError('Gagal memperbarui data');
-                    }
+                    } else { setError('Gagal memperbarui data'); }
                 } catch (err) { setError('Error jaringan'); }
                 finally { setLoading(false); }
             };
 
-            // REVISI FUNGSI: Menyesuaikan Endpoint Delete Sesuai CRUD API Lokal Baru (/api/members/:id)
-            const handleDeleteMember = async (id, name) => {
-                if (confirm(`Apakah Anda yakin ingin menghapus member '${name}' secara permanen dari sistem dan Evolution API?`)) {
+            // FIX: Sekarang fungsi ini mengirimkan instanceName langsung ke endpoint baru backend
+            const handleDeleteMember = async (instanceName) => {
+                if (confirm(`Apakah Anda yakin ingin menghapus member '${instanceName}' secara permanen dari sistem dan Evolution API?`)) {
                     const token = localStorage.getItem('manager_token');
                     try {
-                        const response = await fetch(`${API_BASE_URL}/api/members/${id}`, {
+                        const response = await fetch(`${API_BASE_URL}/api/members/instance/${instanceName}`, {
                             method: 'DELETE',
                             headers: { 'apikey': token }
                         });
                         if (response.ok) {
-                            setSuccess(`Member '${name}' berhasil dihapus.`);
+                            setSuccess(`Member '${instanceName}' berhasil dihapus.`);
                             fetchMembers(token);
                         } else {
-                            setError('Gagal menghapus member dari database');
+                            setError('Gagal menghapus member');
                         }
                     } catch (err) { setError('Error jaringan'); }
                 }
@@ -223,23 +213,6 @@
                 } catch (err) { setError('Error jaringan'); }
                 finally { setLoading(false); }
             };
-
-            if (!isLoggedIn) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950">
-                        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl text-center">
-                            <Icon name="zap" size={48} className="text-blue-500 mx-auto mb-4" />
-                            <h1 className="text-2xl font-black text-white mb-6 uppercase tracking-widest">Evo Login</h1>
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <input className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="Username" value={loginForm.name} onChange={e => setLoginForm({...loginForm, name: e.target.value})} required />
-                                <input type="password" className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="API Key" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} required />
-                                {error && <div className="text-red-400 text-xs bg-red-500/10 p-3 rounded-xl border border-red-500/20">{error}</div>}
-                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">Masuk</button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
 
             return (
                 <div className="min-h-screen flex flex-col md:flex-row bg-slate-950">
@@ -268,12 +241,10 @@
                             </div>
                         </div>
 
-                        {/* Flash Alerts Global */}
                         {error && <div className="mb-4 text-red-400 text-xs bg-red-500/10 p-4 rounded-xl border border-red-500/20">{error}</div>}
                         {success && <div className="mb-4 text-green-400 text-xs bg-green-500/10 p-4 rounded-xl border border-green-500/20">{success}</div>}
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* Form Tambah (Admin Only) */}
                             {userRole === 'admin' && (
                                 <div className="lg:col-span-1 bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl">
                                     <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest text-slate-400">Pendaftaran Baru</h3>
@@ -319,7 +290,8 @@
                                                         <button onClick={() => handleOpenDetail(m.id)} className="text-slate-400 hover:text-blue-400 transition-colors p-2" title="Edit Member">
                                                             <Icon name="sliders" size={16} />
                                                         </button>
-                                                        <button onClick={() => handleDeleteMember(m.id, m.instance_name)} className="text-slate-600 hover:text-red-500 transition-colors p-2" title="Hapus Member">
+                                                        {/* FIX: Di sini m.instance_name dikirim langsung ke fungsi hapus */}
+                                                        <button onClick={() => handleDeleteMember(m.instance_name)} className="text-slate-600 hover:text-red-500 transition-colors p-2" title="Hapus Member">
                                                             <Icon name="trash-2" size={16} />
                                                         </button>
                                                     </td>
@@ -345,7 +317,7 @@
                             </div>
                         </div>
 
-                        {/* MODAL BARU: DETAIL & EDIT MEMBER (Deteksi api/members/:id) */}
+                        {/* DETAIL & EDIT MEMBER MODAL */}
                         {showDetailModal && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
                                 <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
@@ -356,15 +328,14 @@
                                             <Icon name="sliders" size={28} />
                                         </div>
                                         <h3 className="text-xl font-black text-white uppercase tracking-tighter">Pengaturan Member</h3>
-                                        <p className="text-slate-500 text-xs mt-1">ID DB Target: <span className="text-blue-400 font-mono">/api/members/{detailMember?.id || '...'}</span></p>
                                     </div>
 
                                     {detailLoading ? (
-                                        <div className="py-12 text-center text-slate-500 text-xs font-bold uppercase animate-pulse">Memuat Data dari API...</div>
+                                        <div className="py-12 text-center text-slate-500 text-xs font-bold uppercase animate-pulse">Memuat Data...</div>
                                     ) : detailMember ? (
                                         <form onSubmit={handleUpdateMember} className="space-y-4">
                                             <div>
-                                                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Instance Name (Read-Only)</label>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Instance Name</label>
                                                 <input className="w-full bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 text-sm text-slate-400 outline-none cursor-not-allowed" value={detailMember.instance_name} disabled />
                                             </div>
                                             <div>
